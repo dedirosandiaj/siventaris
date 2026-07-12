@@ -1,0 +1,44 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node modules
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment variables & Secrets (SANGAT PENTING)
+.env
+.env.*
+!.env.example
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
+# SolidStart / Vinxi build files
+.vinxi
+.output
+.vercel
+
+# PENTING: Jangan masukkan file service account Google
+*siventaris*.json
+*service-account*.json
+credentials.json
