@@ -55,7 +55,7 @@ export async function POST(event: APIEvent) {
       body.PJ_RUANGAN,
       body.user || "Unknown",
       new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "medium" })
-    ];
+    ].map(val => typeof val === 'string' ? val.toUpperCase() : val);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: spreadsheetId,

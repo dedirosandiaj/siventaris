@@ -1,7 +1,9 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, createEffect, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 
 const YA_TIDAK_OPTIONS = ["-", "YA"];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = ["-", ...Array.from({ length: 50 }, (_, i) => String(CURRENT_YEAR + 2 - i))];
 
 const defaultFormState = {
   Kode: "INV.SP/ANM/",
@@ -21,7 +23,7 @@ const defaultFormState = {
   PDU: "-",
   PDP: "-",
   PDH: "-",
-  RS_KLINIK: "",
+  RS_KLINIK: "RSKTM",
   UNIT: "",
   TP: "",
   TAHUN_PEROLEH: "",
@@ -31,6 +33,68 @@ const defaultFormState = {
 
 export default function Index() {
   const [form, setForm] = createStore({ ...defaultFormState });
+  const [roomCounts, setRoomCounts] = createSignal<Record<string, number>>({});
+
+  onMount(async () => {
+    try {
+      const res = await fetch("/api/counts");
+      if (res.ok) {
+        const data = await res.json();
+        setRoomCounts(data);
+      }
+    } catch (e) {
+      console.error("Gagal mengambil data counts ruangan", e);
+    }
+  });
+
+  createEffect(() => {
+    const prefix = "INV.SP/ANM";
+    const ruanganStr = form.Ruangan ? form.Ruangan.toUpperCase() : "...";
+    
+    let jmlStr = "...";
+    const jmlInt = parseInt(form.Jml);
+    if (!isNaN(jmlInt) && jmlInt > 0 && form.Ruangan) {
+      const rStr = form.Ruangan.toUpperCase();
+      const existingCount = roomCounts()[rStr] || 0;
+      const startNum = existingCount + 1;
+      const endNum = existingCount + jmlInt;
+      
+      const startStr = String(startNum).padStart(3, '0');
+      const endStr = String(endNum).padStart(3, '0');
+
+      if (jmlInt === 1) {
+        jmlStr = startStr;
+      } else {
+        jmlStr = `${startStr}-${endStr}`;
+      }
+    } else if (!isNaN(jmlInt) && jmlInt > 0) {
+      jmlStr = jmlInt === 1 ? "001" : `001-${String(jmlInt).padStart(3, '0')}`;
+    }
+
+    const tahunStr = form.ThnBeli ? form.ThnBeli : "...";
+    
+    let statusPDStr = "...";
+    if (form.PDU === "YA") statusPDStr = "PDU";
+    else if (form.PDP === "YA") statusPDStr = "PDP";
+    else if (form.PDH === "YA") statusPDStr = "PDH";
+
+    const suffix = form.RS_KLINIK ? form.RS_KLINIK.toUpperCase() : "RSKTM";
+    
+    const parts = [
+      prefix,
+      jmlStr,
+      ruanganStr,
+      tahunStr,
+      statusPDStr,
+      suffix
+    ];
+
+    setForm("Kode", parts.join("/"));
+  });
+
+  const [isYearDropdownOpen, setIsYearDropdownOpen] = createSignal(false);
+  const [yearSearch, setYearSearch] = createSignal("");
+  const filteredYears = () => YEAR_OPTIONS.filter(y => y.includes(yearSearch()));
 
   const [loading, setLoading] = createSignal(false);
   const [toastMessage, setToastMessage] = createSignal<{text: string, type: "success" | "error"} | null>(null);
@@ -84,6 +148,33 @@ export default function Index() {
     setIsLoggedIn(false);
   };
 
+  const handleKondisiChange = (field: "Baik" | "RusakRingan" | "RusakSedang" | "RusakBerat", value: string) => {
+    if (value === "YA") {
+      setForm("Baik", field === "Baik" ? "YA" : "-");
+      setForm("RusakRingan", field === "RusakRingan" ? "YA" : "-");
+      setForm("RusakSedang", field === "RusakSedang" ? "YA" : "-");
+      setForm("RusakBerat", field === "RusakBerat" ? "YA" : "-");
+    } else {
+      setForm(field, value);
+    }
+  };
+
+  const handleStatusPDChange = (field: "PDU" | "PDP" | "PDH", value: string) => {
+    if (value === "YA") {
+      setForm("PDU", field === "PDU" ? "YA" : "-");
+      setForm("PDP", field === "PDP" ? "YA" : "-");
+      setForm("PDH", field === "PDH" ? "YA" : "-");
+    } else {
+      setForm(field, value);
+    }
+  };
+
+  const handleThnBeliChange = (value: string) => {
+    setForm("ThnBeli", value);
+    setForm("TP", value);
+    setForm("TAHUN_PEROLEH", value);
+  };
+
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setLoading(true);
@@ -104,6 +195,15 @@ export default function Index() {
 
       if (!response.ok) {
         throw new Error("Gagal menyimpan data");
+      }
+
+      const submittedRuangan = payload.Ruangan ? payload.Ruangan.toUpperCase() : "";
+      const submittedJml = parseInt(payload.Jml) || 0;
+      if (submittedRuangan && submittedJml > 0) {
+        setRoomCounts(prev => ({
+          ...prev,
+          [submittedRuangan]: (prev[submittedRuangan] || 0) + submittedJml
+        }));
       }
 
       setForm(defaultFormState);
@@ -201,12 +301,12 @@ export default function Index() {
             
             <div class="space-y-1">
               <label class="block text-sm font-medium text-gray-700">Kode</label>
-              <input type="text" value={form.Kode} onInput={(e) => setForm("Kode", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.Kode} readOnly required class="w-full p-2 border border-gray-300 rounded bg-gray-100 cursor-not-allowed focus:outline-none text-gray-600 font-mono text-sm" />
             </div>
 
             <div class="space-y-1">
               <label class="block text-sm font-medium text-gray-700">Nama</label>
-              <input type="text" value={form.Nama} onInput={(e) => setForm("Nama", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+              <input type="text" value={form.Nama} onInput={(e) => setForm("Nama", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
             </div>
 
             <div class="space-y-1">
@@ -222,24 +322,62 @@ export default function Index() {
 
             <div class="space-y-1">
               <label class="block text-sm font-medium text-gray-700">Ruangan</label>
-              <input type="text" value={form.Ruangan} onInput={(e) => setForm("Ruangan", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+              <input type="text" value={form.Ruangan} onInput={(e) => setForm("Ruangan", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
             </div>
 
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Merk</label>
-                <input type="text" value={form.merk} onInput={(e) => setForm("merk", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.merk} onInput={(e) => setForm("merk", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Bahan</label>
-                <input type="text" value={form.Bahan} onInput={(e) => setForm("Bahan", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.Bahan} onInput={(e) => setForm("Bahan", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
               </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Tahun Beli</label>
-                <input type="number" value={form.ThnBeli} onInput={(e) => setForm("ThnBeli", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <div class="relative w-full">
+                  <input
+                    type="text"
+                    value={form.ThnBeli}
+                    onInput={(e) => {
+                      const val = e.currentTarget.value.toUpperCase();
+                      handleThnBeliChange(val);
+                      setYearSearch(val);
+                      if (!isYearDropdownOpen()) setIsYearDropdownOpen(true);
+                    }}
+                    onFocus={() => {
+                      setYearSearch(form.ThnBeli);
+                      setIsYearDropdownOpen(true);
+                    }}
+                    onBlur={() => setTimeout(() => setIsYearDropdownOpen(false), 200)}
+                    placeholder="Pilih atau ketik tahun..."
+                    required
+                    class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  />
+                  <Show when={isYearDropdownOpen()}>
+                    <ul class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto">
+                      {filteredYears().map(year => (
+                        <li
+                          class="p-2 hover:bg-blue-100 cursor-pointer"
+                          onMouseDown={() => {
+                            handleThnBeliChange(year);
+                            setYearSearch("");
+                            setIsYearDropdownOpen(false);
+                          }}
+                        >
+                          {year}
+                        </li>
+                      ))}
+                      <Show when={filteredYears().length === 0}>
+                        <li class="p-2 text-gray-500 text-sm">Tidak ditemukan</li>
+                      </Show>
+                    </ul>
+                  </Show>
+                </div>
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Jumlah</label>
@@ -250,11 +388,11 @@ export default function Index() {
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Harga</label>
-                <input type="number" value={form.Harga} onInput={(e) => setForm("Harga", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.Harga} onInput={(e) => setForm("Harga", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Satuan</label>
-                <input type="text" value={form.Satuan} onInput={(e) => setForm("Satuan", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.Satuan} onInput={(e) => setForm("Satuan", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
               </div>
             </div>
 
@@ -264,13 +402,13 @@ export default function Index() {
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Baik</label>
-                <select value={form.Baik} onChange={(e) => setForm("Baik", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.Baik} onChange={(e) => handleKondisiChange("Baik", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Rusak Ringan</label>
-                <select value={form.RusakRingan} onChange={(e) => setForm("RusakRingan", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.RusakRingan} onChange={(e) => handleKondisiChange("RusakRingan", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
@@ -279,13 +417,13 @@ export default function Index() {
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Rusak Sedang</label>
-                <select value={form.RusakSedang} onChange={(e) => setForm("RusakSedang", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.RusakSedang} onChange={(e) => handleKondisiChange("RusakSedang", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Rusak Berat</label>
-                <select value={form.RusakBerat} onChange={(e) => setForm("RusakBerat", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.RusakBerat} onChange={(e) => handleKondisiChange("RusakBerat", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
@@ -297,19 +435,19 @@ export default function Index() {
             <div class="grid grid-cols-3 gap-2">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">PDU</label>
-                <select value={form.PDU} onChange={(e) => setForm("PDU", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.PDU} onChange={(e) => handleStatusPDChange("PDU", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">PDP</label>
-                <select value={form.PDP} onChange={(e) => setForm("PDP", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.PDP} onChange={(e) => handleStatusPDChange("PDP", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">PDH</label>
-                <select value={form.PDH} onChange={(e) => setForm("PDH", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                <select value={form.PDH} onChange={(e) => handleStatusPDChange("PDH", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
                   {YA_TIDAK_OPTIONS.map(opt => <option value={opt}>{opt}</option>)}
                 </select>
               </div>
@@ -320,33 +458,36 @@ export default function Index() {
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">RS / Klinik</label>
-                <input type="text" value={form.RS_KLINIK} onInput={(e) => setForm("RS_KLINIK", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <select value={form.RS_KLINIK} onChange={(e) => setForm("RS_KLINIK", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 bg-white">
+                  <option value="RSKTM">RSKTM</option>
+                  <option value="KLINIK">KLINIK</option>
+                </select>
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Unit</label>
-                <input type="text" value={form.UNIT} onInput={(e) => setForm("UNIT", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.UNIT} onInput={(e) => setForm("UNIT", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
               </div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">TP</label>
-                <input type="text" value={form.TP} onInput={(e) => setForm("TP", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.TP} readOnly required class="w-full p-2 border border-gray-300 rounded bg-gray-100 cursor-not-allowed focus:outline-none text-gray-600" />
               </div>
               <div class="space-y-1">
                 <label class="block text-sm font-medium text-gray-700">Tahun Peroleh</label>
-                <input type="number" value={form.TAHUN_PEROLEH} onInput={(e) => setForm("TAHUN_PEROLEH", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+                <input type="text" value={form.TAHUN_PEROLEH} readOnly required class="w-full p-2 border border-gray-300 rounded bg-gray-100 cursor-not-allowed focus:outline-none text-gray-600" />
               </div>
             </div>
 
             <div class="space-y-1">
               <label class="block text-sm font-medium text-gray-700">PJ Ruangan</label>
-              <input type="text" value={form.PJ_RUANGAN} onInput={(e) => setForm("PJ_RUANGAN", e.currentTarget.value)} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
+              <input type="text" value={form.PJ_RUANGAN} onInput={(e) => setForm("PJ_RUANGAN", e.currentTarget.value.toUpperCase())} required class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" />
             </div>
 
             <div class="space-y-1">
               <label class="block text-sm font-medium text-gray-700">Keterangan</label>
-              <textarea value={form.KETERANGAN} onInput={(e) => setForm("KETERANGAN", e.currentTarget.value)} required rows="3" class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"></textarea>
+              <textarea value={form.KETERANGAN} onInput={(e) => setForm("KETERANGAN", e.currentTarget.value.toUpperCase())} required rows="3" class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"></textarea>
             </div>
 
           </form>

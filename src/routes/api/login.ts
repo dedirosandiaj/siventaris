@@ -52,8 +52,10 @@ export async function POST(event: APIEvent) {
     }
 
     // Periksa kecocokan kredensial
-    // Kita abaikan header di baris pertama jika ada, tapi karena pencarian exact match, header tidak masalah
-    const isValidUser = rows.some((row: any[]) => {
+    // Kita abaikan header di baris pertama agar tidak bisa login menggunakan teks judul kolom
+    const isValidUser = rows.some((row: any[], index: number) => {
+      if (index === 0) return false;
+      
       const dbUser = row[0]?.toString().trim();
       const dbPass = row[1]?.toString().trim();
       return dbUser === username && dbPass === password;
