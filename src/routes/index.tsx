@@ -193,8 +193,13 @@ export default function Index() {
         body: JSON.stringify(payload),
       });
 
+      let data: any = {};
+      try {
+        data = await response.json();
+      } catch (e) {}
+
       if (!response.ok) {
-        throw new Error("Gagal menyimpan data");
+        throw new Error(data.error || "Gagal menyimpan data");
       }
 
       const submittedRuangan = payload.Ruangan ? payload.Ruangan.toUpperCase() : "";
@@ -208,7 +213,7 @@ export default function Index() {
 
       setForm(defaultFormState);
       
-      showToast("Data berhasil disimpan!", "success");
+      showToast(data.message || "Data berhasil disimpan!", "success");
     } catch (err: any) {
       showToast(err.message || "Terjadi kesalahan saat menyimpan data.", "error");
     } finally {
@@ -300,7 +305,7 @@ export default function Index() {
           <form id="inventory-form" onSubmit={handleSubmit} class="space-y-4">
             
             <div class="space-y-1">
-              <label class="block text-sm font-medium text-gray-700">Kode</label>
+              <label class="block text-sm font-medium text-gray-700">Kode (Preview Otomatis)</label>
                 <input type="text" value={form.Kode} readOnly required class="w-full p-2 border border-gray-300 rounded bg-gray-100 cursor-not-allowed focus:outline-none text-gray-600 font-mono text-sm" />
             </div>
 

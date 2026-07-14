@@ -7,7 +7,6 @@ export async function POST(event: APIEvent) {
     
     // Konfigurasi Kredensial dari Environment Variables
     const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    // Private key bisa berisi \n yang harus di-replace atau di-parse dengan benar
     const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
     const spreadsheetId = process.env.SPREADSHEET_ID;
 
@@ -28,9 +27,71 @@ export async function POST(event: APIEvent) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
+    // --- MULAI: Pengecekan Real-time untuk Kode ---
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId,
+      range: "siventaris!A:H",
+    });
+
+    const existingRows = response.data.values || [];
+    const ruanganInput = body.Ruangan ? body.Ruangan.toString().toUpperCase().trim() : "";
+    let maxNum = 0;
+
+    for (let i = 1; i < existingRows.length; i++) {
+      const row = existingRows[i];
+      const rowKode = row[0] ? row[0].toString().trim() : "";
+      const rowRuangan = row[3] ? row[3].toString().toUpperCase().trim() : "";
+
+      if (rowKode && rowRuangan === ruanganInput) {
+        const parts = rowKode.split('/');
+        if (parts.length >= 4) {
+          const numPart = parts[2]; // e.g. "036" atau "037-038"
+          let rowMaxNum = 0;
+          if (numPart.includes('-')) {
+             const subParts = numPart.split('-');
+             const endNum = parseInt(subParts[1], 10);
+             if (!isNaN(endNum)) rowMaxNum = endNum;
+          } else {
+             const num = parseInt(numPart, 10);
+             if (!isNaN(num)) rowMaxNum = num;
+          }
+          if (rowMaxNum > maxNum) {
+            maxNum = rowMaxNum;
+          }
+        }
+      }
+    }
+
+    const jmlInt = parseInt(body.Jml) || 1;
+    const startNum = maxNum + 1;
+    const endNum = maxNum + jmlInt;
+    
+    const startStr = String(startNum).padStart(3, '0');
+    const endStr = String(endNum).padStart(3, '0');
+
+    let jmlStr = "";
+    if (jmlInt === 1) {
+      jmlStr = startStr;
+    } else {
+      jmlStr = `${startStr}-${endStr}`;
+    }
+
+    const prefix = "INV.SP/ANM";
+    const tahunStr = body.ThnBeli ? body.ThnBeli : "-";
+    
+    let statusPDStr = "-";
+    if (body.PDU === "YA") statusPDStr = "PDU";
+    else if (body.PDP === "YA") statusPDStr = "PDP";
+    else if (body.PDH === "YA") statusPDStr = "PDH";
+
+    const suffix = body.RS_KLINIK ? body.RS_KLINIK.toUpperCase() : "RSKTM";
+    
+    const finalKode = `${prefix}/${jmlStr}/${ruanganInput || "-"}/${tahunStr}/${statusPDStr}/${suffix}`;
+    // --- AKHIR: Pengecekan Real-time untuk Kode ---
+
     // Menyusun nilai-nilai baris berdasarkan field (23 kolom)
     const rowValues = [
-      body.Kode,
+      finalKode, // Menggunakan finalKode buatan server
       body.Nama,
       body.Lantai,
       body.Ruangan,
@@ -59,14 +120,14 @@ export async function POST(event: APIEvent) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: spreadsheetId,
-      range: "siventaris!A1", // Menggunakan nama sheet 'siventaris'
+      range: "siventaris!A1",
       valueInputOption: "USER_ENTERED",
       requestBody: {
         values: [rowValues],
       },
     });
 
-    return new Response(JSON.stringify({ success: true, message: "Data berhasil ditambahkan" }), {
+    return new Response(JSON.stringify({ success: true, message: `Berhasil ditambahkan dengan Kode Final: ${finalKode}`, finalKode: finalKode }), {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });

@@ -1,4 +1,5 @@
 import { createSignal, onMount, Show, For, createMemo } from "solid-js";
+import { Portal } from "solid-js/web";
 import { A } from "@solidjs/router";
 import * as XLSX from "xlsx";
 
@@ -29,6 +30,12 @@ export default function AdminDashboard() {
   const [currentPage, setCurrentPage] = createSignal(1);
   const rowsPerPage = 50;
 
+  // Column Filters State
+  const [columnFilters, setColumnFilters] = createSignal<Record<number, string[]>>({});
+  const [activeFilterColumn, setActiveFilterColumn] = createSignal<number | null>(null);
+  const [filterPopupCoords, setFilterPopupCoords] = createSignal({top: 0, left: 0});
+  const [filterSearch, setFilterSearch] = createSignal("");
+
   onMount(() => {
     const isLoggedIn = sessionStorage.getItem("siventaris_logged_in") === "true";
     const user = sessionStorage.getItem("siventaris_user");
@@ -39,6 +46,14 @@ export default function AdminDashboard() {
       fetchUsers();
     }
     setCheckingAuth(false);
+
+    // Menutup filter dropdown jika klik di luar
+    document.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.filter-dropdown') && !target.closest('.filter-toggle')) {
+        setActiveFilterColumn(null);
+      }
+    });
   });
 
   const fetchInventoryData = async () => {
@@ -118,6 +133,30 @@ export default function AdminDashboard() {
     return new Date(dateStr);
   };
 
+  const getUniqueColumnValues = (colIdx: number) => {
+    const data = inventoryData();
+    if (data.length <= 1) return [];
+    const values = data.slice(1).map(row => row[colIdx] || "");
+    return Array.from(new Set(values)).sort();
+  };
+
+  const handleFilterToggle = (colIdx: number, value: string) => {
+    setColumnFilters(prev => {
+      const current = prev[colIdx] || [];
+      const updated = current.includes(value) 
+        ? current.filter(v => v !== value) 
+        : [...current, value];
+      
+      if (updated.length === 0) {
+        const newFilters = { ...prev };
+        delete newFilters[colIdx];
+        return newFilters;
+      }
+      return { ...prev, [colIdx]: updated };
+    });
+    setCurrentPage(1);
+  };
+
   const filteredInventory = createMemo(() => {
     const data = inventoryData();
     if (data.length <= 1) return { headers: [], rows: [] };
@@ -138,6 +177,19 @@ export default function AdminDashboard() {
         return rowDate >= start && rowDate <= end;
       });
     }
+    
+    // Terapkan Filter Kolom (Excel-like)
+    const currentFilters = columnFilters();
+    Object.keys(currentFilters).forEach(colIdxStr => {
+      const colIdx = parseInt(colIdxStr);
+      const selectedValues = currentFilters[colIdx];
+      if (selectedValues && selectedValues.length > 0) {
+        rows = rows.filter(item => {
+          const val = item.row[colIdx] || "";
+          return selectedValues.includes(val);
+        });
+      }
+    });
     
     return { headers, rows };
   });
@@ -363,7 +415,93 @@ export default function AdminDashboard() {
                     <thead class="text-xs font-semibold uppercase tracking-wider text-slate-300 bg-black/20 backdrop-blur-md">
                       <tr>
                         <For each={filteredInventory().headers}>
-                          {(header) => <th class="px-6 py-4 whitespace-nowrap">{header}</th>}
+                          {(header, idx) => (
+                            <th class="px-6 py-4 whitespace-nowrap relative group">
+                              <div class="flex items-center gap-2">
+                                <span>{header}</span>
+                                <button 
+                                  class={`filter-toggle p-1 rounded transition-colors ${columnFilters()[idx()] ? 'text-indigo-400 bg-indigo-500/10' : 'text-slate-500 hover:text-indigo-400 hover:bg-white/5'}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (activeFilterColumn() === idx()) {
+                                      setActiveFilterColumn(null);
+                                    } else {
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      setFilterPopupCoords({
+                                        top: rect.bottom + 8,
+                                        left: rect.left
+                                      });
+                                      setFilterSearch("");
+                                      setActiveFilterColumn(idx());
+                                    }
+                                  }}
+                                  title={`Filter kolom ${header}`}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                                  </svg>
+                                </button>
+                              </div>
+                              
+                              <Show when={activeFilterColumn() === idx()}>
+                                <Portal>
+                                  <div 
+                                    class="filter-dropdown fixed w-64 bg-slate-800 border border-white/10 shadow-2xl rounded-xl z-[9999] overflow-hidden" 
+                                    style={{ top: `${filterPopupCoords().top}px`, left: `${filterPopupCoords().left}px` }}
+                                    onClick={e => e.stopPropagation()}
+                                  >
+                                    <div class="p-3 border-b border-white/10 flex justify-between items-center bg-black/20">
+                                      <span class="font-bold text-white text-xs">Filter: {header}</span>
+                                      <button 
+                                        onClick={() => {
+                                          setColumnFilters(prev => {
+                                            const newFilters = {...prev};
+                                            delete newFilters[idx()];
+                                            return newFilters;
+                                          });
+                                          setActiveFilterColumn(null);
+                                          setCurrentPage(1);
+                                        }}
+                                        class="text-xs text-red-400 hover:text-red-300 font-semibold"
+                                      >
+                                        Reset
+                                      </button>
+                                    </div>
+                                    <div class="p-2 border-b border-white/5 bg-slate-900/50">
+                                      <div class="relative">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 absolute left-2.5 top-2.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                        <input 
+                                          type="text" 
+                                          placeholder="Cari..." 
+                                          value={filterSearch()}
+                                          onInput={(e) => setFilterSearch(e.currentTarget.value)}
+                                          class="w-full bg-black/30 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div class="max-h-60 overflow-y-auto custom-scrollbar p-2">
+                                      <For each={getUniqueColumnValues(idx()).filter(v => v.toLowerCase().includes(filterSearch().toLowerCase()))}>
+                                        {(val) => (
+                                          <label class="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors">
+                                            <input 
+                                              type="checkbox" 
+                                              class="w-4 h-4 rounded border-white/20 bg-black/40 text-indigo-500 focus:ring-indigo-500/50"
+                                              checked={!!columnFilters()[idx()]?.includes(val)}
+                                              onChange={() => handleFilterToggle(idx(), val)}
+                                            />
+                                            <span class="text-sm text-slate-300 font-medium truncate" title={val || "(Kosong)"}>{val || "(Kosong)"}</span>
+                                          </label>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </div>
+                                </Portal>
+                              </Show>
+                            </th>
+                          )}
                         </For>
                         <th class="px-6 py-4 whitespace-nowrap text-right sticky right-0 bg-slate-900/90 backdrop-blur-md border-l border-white/5">Aksi</th>
                       </tr>
