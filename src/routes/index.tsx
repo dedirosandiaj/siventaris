@@ -202,13 +202,15 @@ export default function Index() {
         throw new Error(data.error || "Gagal menyimpan data");
       }
 
-      const submittedRuangan = payload.Ruangan ? payload.Ruangan.toUpperCase() : "";
-      const submittedJml = parseInt(payload.Jml) || 0;
-      if (submittedRuangan && submittedJml > 0) {
-        setRoomCounts(prev => ({
-          ...prev,
-          [submittedRuangan]: (prev[submittedRuangan] || 0) + submittedJml
-        }));
+      // Mengambil ulang data nomor urut terbaru dari server (Refresh Data Tanpa Reload Halaman)
+      try {
+        const res = await fetch("/api/counts");
+        if (res.ok) {
+          const dataCounts = await res.json();
+          setRoomCounts(dataCounts);
+        }
+      } catch (e) {
+        console.error("Gagal refresh data nomor urut", e);
       }
 
       setForm(defaultFormState);
