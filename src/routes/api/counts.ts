@@ -1,5 +1,6 @@
 import { APIEvent } from "@solidjs/start/server";
 import { google } from "googleapis";
+import { globalCache } from "../../utils/cache";
 
 export async function GET(event: APIEvent) {
   try {
@@ -21,6 +22,15 @@ export async function GET(event: APIEvent) {
       },
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
+
+    // --- SERVER-SIDE CACHE LOGIC ---
+    // Jika cache kurang dari 10 detik, gunakan cache untuk hemat kuota Google Sheets
+    if (globalCache.counts && (Date.now() - globalCache.lastFetchTime < 10000)) {
+      return new Response(JSON.stringify(globalCache.counts), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
 
     const sheets = google.sheets({ version: "v4", auth });
 
@@ -61,6 +71,10 @@ export async function GET(event: APIEvent) {
         }
       }
     }
+
+    // Update Cache
+    globalCache.counts = counts;
+    globalCache.lastFetchTime = Date.now();
 
     return new Response(JSON.stringify(counts), {
       status: 200,

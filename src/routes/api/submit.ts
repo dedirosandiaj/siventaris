@@ -1,5 +1,6 @@
 import { APIEvent } from "@solidjs/start/server";
 import { google } from "googleapis";
+import { globalCache } from "../../utils/cache";
 
 // Global mutex lock to prevent race conditions during concurrent submissions
 let submitLock = Promise.resolve();
@@ -139,6 +140,9 @@ export async function POST(event: APIEvent) {
         values: [rowValues],
       },
     });
+
+    // Invalidate the cache immediately so all polling users instantly get the new counts!
+    globalCache.lastFetchTime = 0;
 
     return new Response(JSON.stringify({ success: true, message: `Berhasil ditambahkan dengan Kode Final: ${finalKode}`, finalKode: finalKode }), {
       status: 200,

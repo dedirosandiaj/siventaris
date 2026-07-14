@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, Show } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 
 const YA_TIDAK_OPTIONS = ["-", "YA"];
@@ -35,16 +35,26 @@ export default function Index() {
   const [form, setForm] = createStore({ ...defaultFormState });
   const [roomCounts, setRoomCounts] = createSignal<Record<string, number>>({});
 
-  onMount(async () => {
-    try {
-      const res = await fetch("/api/counts");
-      if (res.ok) {
-        const data = await res.json();
-        setRoomCounts(data);
+  onMount(() => {
+    const fetchCounts = async () => {
+      try {
+        const res = await fetch("/api/counts");
+        if (res.ok) {
+          const data = await res.json();
+          setRoomCounts(data);
+        }
+      } catch (e) {
+        console.error("Gagal mengambil data counts ruangan", e);
       }
-    } catch (e) {
-      console.error("Gagal mengambil data counts ruangan", e);
-    }
+    };
+
+    // Ambil data pertama kali saat halaman dimuat
+    fetchCounts();
+
+    // Auto-Sync sangat cepat setiap 2 detik (Real-time murni)
+    const interval = setInterval(fetchCounts, 2000);
+
+    onCleanup(() => clearInterval(interval));
   });
 
   createEffect(() => {
