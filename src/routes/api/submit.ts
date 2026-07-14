@@ -1,6 +1,9 @@
 import { APIEvent } from "@solidjs/start/server";
 import { google } from "googleapis";
 
+// Global mutex lock to prevent race conditions during concurrent submissions
+let submitLock = Promise.resolve();
+
 export async function POST(event: APIEvent) {
   try {
     const body = await event.request.json();
@@ -27,8 +30,18 @@ export async function POST(event: APIEvent) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    // --- MULAI: Pengecekan Real-time untuk Kode ---
-    const response = await sheets.spreadsheets.values.get({
+    // Mengunci proses (Mutex) agar tidak ada 2 request yang membaca dan menulis secara bersamaan
+    let releaseLock: () => void;
+    const lockPromise = new Promise<void>(resolve => {
+      releaseLock = resolve;
+    });
+    const previousLock = submitLock;
+    submitLock = previousLock.then(() => lockPromise);
+    await previousLock;
+
+    try {
+      // --- MULAI: Pengecekan Real-time untuk Kode ---
+      const response = await sheets.spreadsheets.values.get({
       spreadsheetId: spreadsheetId,
       range: "siventaris!A:H",
     });
@@ -131,6 +144,10 @@ export async function POST(event: APIEvent) {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
+    
+    } finally {
+      releaseLock!(); // Melepaskan kunci agar antrean selanjutnya bisa diproses
+    }
     
   } catch (error: any) {
     console.error("Error saat menyimpan ke Google Sheets:", error);
